@@ -46,15 +46,21 @@ A browser-based interactive piano game that uses webcam hand tracking to play a 
 
 ## 🚀 Quick Start
 
-### Setup (Zero Installation Required!)
+### 🌐 Play Online (Public Access)
+
+**Live Demo:** Visit the deployed version at:
+- GitHub Pages: `https://zliu31.github.io/piano/`
+- Or: `https://zliu31.github.io/piano/air-piano.html`
+
+### 💻 Run Locally (Zero Installation Required!)
 
 1. **Open the file in your browser:**
    ```bash
-   # Option 1: Double-click air-piano.html in your file explorer
+   # Option 1: Double-click index.html or air-piano.html in your file explorer
 
    # Option 2: Use a local server (recommended for best performance)
    python3 -m http.server 8000
-   # Then visit: http://localhost:8000/air-piano.html
+   # Then visit: http://localhost:8000/
 
    # Option 3: Use Node.js http-server
    npx http-server
@@ -66,6 +72,14 @@ A browser-based interactive piano game that uses webcam hand tracking to play a 
 3. **Position yourself** so your hand is clearly visible in the webcam preview (top-right corner)
 
 4. **Start playing!** Read the instructions overlay for detailed guidance
+
+### 🚀 Deploy Your Own
+
+Want to host your own version? See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete deployment instructions including:
+- GitHub Pages setup
+- Custom domain configuration
+- Alternative hosting options (Netlify, Vercel)
+- Self-hosting guide
 
 ### System Requirements
 

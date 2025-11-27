@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Piano - Vintage Hand Tracking Piano Game</title>
+
+    <!-- MediaPipe Hands CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        /* ============================
+           GLOBAL RESET & FULL-SCREEN SETUP
+           ============================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Georgia', serif;
+        }
+
+        /* ============================
+           PIANO CONTAINER - FULL SCREEN
+           ============================ */
+        #piano-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background:
+                radial-gradient(ellipse at center, rgba(0,0,0,0) 0%, rgba(0,0,0,0.4) 100%),
+                linear-gradient(to bottom, #3d2817 0%, #5c4033 50%, #3d2817 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: inset 0 0 200px rgba(0,0,0,0.5);
+        }
+
+        /* Wood grain texture overlay */
+        #piano-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image:
+                repeating-linear-gradient(
+                    90deg,
+                    rgba(92, 64, 51, 0.1) 0px,
+                    rgba(61, 40, 23, 0.1) 2px,
+                    rgba(92, 64, 51, 0.1) 4px
+                );
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        /* ============================
+           KEYBOARD LAYOUT
+           ============================ */
+        #keyboard {
+            position: relative;
+            width: 100%;
+            height: 70%;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: stretch;
+            padding: 0;
+            gap: 2px;
+            filter: drop-shadow(0 20px 40px rgba(0,0,0,0.7));
+        }
+
+        /* ============================
+           PIANO KEY STYLING - VINTAGE
+           ============================ */
+        .key {
+            position: relative;
+            flex: 1;
+            background: linear-gradient(to bottom, #f9f6f0 0%, #e8e4d8 40%, #dad5c8 100%);
+            border: 2px solid #8b7355;
+            border-radius: 0 0 8px 8px;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            box-shadow:
+                inset 0 -10px 20px rgba(0,0,0,0.1),
+                inset 0 5px 10px rgba(255,255,255,0.3),
+                0 10px 30px rgba(0,0,0,0.5);
+
+            /* Aged ivory effect */
+            filter: sepia(0.15) saturate(0.8);
+        }
+
+        /* Black keys styling */
+        .key.black {
+            background: linear-gradient(to bottom, #1a1a1a 0%, #0d0d0d 50%, #000000 100%);
+            border-color: #000;
+            height: 60%;
+            position: absolute;
+            width: 8%;
+            z-index: 10;
+            top: 0;
+            filter: none;
+            box-shadow:
+                inset 0 -5px 10px rgba(255,255,255,0.1),
+                0 15px 35px rgba(0,0,0,0.8);
+        }
+
+        /* Position black keys between white keys */
+        .key.black[data-note="C#"] { left: 12%; }
+        .key.black[data-note="D#"] { left: 26%; }
+        .key.black[data-note="F#"] { left: 54%; }
+        .key.black[data-note="G#"] { left: 68%; }
+        .key.black[data-note="A#"] { left: 82%; }
+
+        /* Key hover effect */
+        .key:hover {
+            filter: brightness(1.1);
+        }
+
+        /* Key press animation - depression effect */
+        .key.active {
+            transform: translateY(8px);
+            box-shadow:
+                inset 0 5px 15px rgba(0,0,0,0.4),
+                0 2px 10px rgba(0,0,0,0.3);
+            background: linear-gradient(to bottom, #e8e4d8 0%, #dad5c8 40%, #c8c3b8 100%);
+        }
+
+        .key.black.active {
+            transform: translateY(5px);
+            background: linear-gradient(to bottom, #0d0d0d 0%, #000000 50%, #000000 100%);
+            box-shadow:
+                inset 0 3px 10px rgba(0,0,0,0.8),
+                0 5px 15px rgba(0,0,0,0.6);
+        }
+
+        /* Glow effect when triggered by hand */
+        .key.hand-triggered {
+            box-shadow:
+                0 0 30px rgba(255, 215, 0, 0.6),
+                inset 0 0 20px rgba(255, 215, 0, 0.2);
+            animation: glow-pulse 0.3s ease-out;
+        }
+
+        @keyframes glow-pulse {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.3); }
+        }
+
+        /* Note labels on keys */
+        .key-label {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 24px;
+            font-weight: bold;
+            color: #5c4033;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+            pointer-events: none;
+            font-family: 'Georgia', serif;
+        }
+
+        .key.black .key-label {
+            color: #888;
+            bottom: 15px;
+            font-size: 16px;
+        }
+
+        /* ============================
+           WEBCAM & OVERLAY
+           ============================ */
+        #webcam-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            height: 240px;
+            border: 4px solid #8b7355;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            background: #000;
+            z-index: 100;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror the webcam */
+        }
+
+        #canvas-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* ============================
+           UI OVERLAY ELEMENTS
+           ============================ */
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        #mode-indicator {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(92, 64, 51, 0.9);
+            color: #f9f6f0;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 28px;
+            font-weight: bold;
+            border: 3px solid #8b7355;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+
+        #challenge-display {
+            position: absolute;
+            top: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(61, 40, 23, 0.95);
+            color: #f9f6f0;
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 20px;
+            border: 2px solid #8b7355;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            display: none;
+        }
+
+        #challenge-sequence {
+            font-size: 32px;
+            letter-spacing: 8px;
+            font-weight: bold;
+            margin: 10px 0;
+            color: #ffd700;
+        }
+
+        #feedback {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 72px;
+            font-weight: bold;
+            opacity: 0;
+            pointer-events: none;
+            text-shadow: 0 0 20px rgba(0,0,0,0.8);
+            transition: opacity 0.3s;
+        }
+
+        #feedback.show {
+            opacity: 1;
+        }
+
+        #feedback.correct {
+            color: #4CAF50;
+        }
+
+        #feedback.incorrect {
+            color: #f44336;
+        }
+
+        /* Controls */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            pointer-events: all;
+        }
+
+        .control-btn {
+            background: linear-gradient(to bottom, #8b7355 0%, #6b5345 100%);
+            color: #f9f6f0;
+            border: 3px solid #5c4033;
+            padding: 12px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.4);
+            transition: all 0.2s;
+            font-family: 'Georgia', serif;
+        }
+
+        .control-btn:hover {
+            background: linear-gradient(to bottom, #9b8365 0%, #7b6355 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(0,0,0,0.5);
+        }
+
+        .control-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        /* Instruction panel */
+        #instructions {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(61, 40, 23, 0.98);
+            color: #f9f6f0;
+            padding: 40px 50px;
+            border-radius: 15px;
+            border: 4px solid #8b7355;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            max-width: 600px;
+            text-align: left;
+            z-index: 200;
+            display: none;
+        }
+
+        #instructions.show {
+            display: block;
+        }
+
+        #instructions h2 {
+            color: #ffd700;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 32px;
+        }
+
+        #instructions ul {
+            margin: 20px 0;
+            padding-left: 20px;
+        }
+
+        #instructions li {
+            margin: 10px 0;
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        #instructions .close-btn {
+            display: block;
+            margin: 20px auto 0;
+            pointer-events: all;
+        }
+
+        /* Finger tracking indicator */
+        #finger-indicator {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 215, 0, 0.8) 0%, rgba(255, 165, 0, 0.4) 100%);
+            border: 3px solid #ffd700;
+            pointer-events: none;
+            display: none;
+            z-index: 150;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <!-- Piano Container -->
+    <div id="piano-container">
+        <!-- Keyboard with 7 white keys (C, D, E, F, G, A, B) -->
+        <div id="keyboard">
+            <!-- White keys -->
+            <div class="key white" data-note="C" data-freq="261.63">
+                <div class="key-label">C</div>
+            </div>
+            <div class="key white" data-note="D" data-freq="293.66">
+                <div class="key-label">D</div>
+            </div>
+            <div class="key white" data-note="E" data-freq="329.63">
+                <div class="key-label">E</div>
+            </div>
+            <div class="key white" data-note="F" data-freq="349.23">
+                <div class="key-label">F</div>
+            </div>
+            <div class="key white" data-note="G" data-freq="392.00">
+                <div class="key-label">G</div>
+            </div>
+            <div class="key white" data-note="A" data-freq="440.00">
+                <div class="key-label">A</div>
+            </div>
+            <div class="key white" data-note="B" data-freq="493.88">
+                <div class="key-label">B</div>
+            </div>
+
+            <!-- Black keys (optional, for visual realism) -->
+            <div class="key black" data-note="C#" data-freq="277.18">
+                <div class="key-label">C#</div>
+            </div>
+            <div class="key black" data-note="D#" data-freq="311.13">
+                <div class="key-label">D#</div>
+            </div>
+            <div class="key black" data-note="F#" data-freq="369.99">
+                <div class="key-label">F#</div>
+            </div>
+            <div class="key black" data-note="G#" data-freq="415.30">
+                <div class="key-label">G#</div>
+            </div>
+            <div class="key black" data-note="A#" data-freq="466.16">
+                <div class="key-label">A#</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Webcam Container -->
+    <div id="webcam-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="canvas-overlay"></canvas>
+    </div>
+
+    <!-- Finger position indicator -->
+    <div id="finger-indicator"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-overlay">
+        <div id="mode-indicator">🎹 Free Play Mode</div>
+
+        <div id="challenge-display">
+            <div>Play this sequence:</div>
+            <div id="challenge-sequence"></div>
+            <div id="challenge-progress"></div>
+        </div>
+
+        <div id="feedback"></div>
+
+        <div id="controls">
+            <button class="control-btn" onclick="toggleMode()">Switch Mode</button>
+            <button class="control-btn" onclick="showInstructions()">Instructions</button>
+        </div>
+    </div>
+
+    <!-- Instructions Panel -->
+    <div id="instructions">
+        <h2>🎹 Air Piano Instructions</h2>
+        <h3>How to Play:</h3>
+        <ul>
+            <li><strong>Position your hand:</strong> Hold your hand in front of the webcam with your index finger pointing.</li>
+            <li><strong>Move horizontally:</strong> Move your finger left to right to select different notes (C, D, E, F, G, A, B).</li>
+            <li><strong>Tap to play:</strong> Make a quick downward motion with your index finger to play the note.</li>
+            <li><strong>Watch the indicator:</strong> A golden circle shows where your finger is detected on screen.</li>
+        </ul>
+
+        <h3>Game Modes:</h3>
+        <ul>
+            <li><strong>Free Play:</strong> Play any notes freely by moving and tapping your finger.</li>
+            <li><strong>Melody Challenge:</strong> Reproduce the sequence shown on screen. Match the notes in order!</li>
+        </ul>
+
+        <h3>Tips:</h3>
+        <ul>
+            <li>Ensure good lighting for better hand tracking</li>
+            <li>Keep your hand clearly visible in the webcam</li>
+            <li>Make distinct downward tapping motions</li>
+            <li>The tap detection works best with quick, deliberate movements</li>
+        </ul>
+
+        <button class="control-btn close-btn" onclick="hideInstructions()">Got It!</button>
+    </div>
+
+    <script>
+        // ============================
+        // GLOBAL VARIABLES
+        // ============================
+
+        let audioContext;
+        let reverbNode;
+        let masterGain;
+
+        // Hand tracking variables
+        let hands;
+        let camera;
+        let lastFingerY = null;
+        let tapThreshold = 0.05; // Sensitivity for tap detection
+        let lastTapTime = 0;
+        let tapCooldown = 300; // ms between taps
+
+        // Game state
+        let gameMode = 'free'; // 'free' or 'challenge'
+        let currentChallenge = [];
+        let userSequence = [];
+        let challengeActive = false;
+
+        // Note mapping - 7 zones across screen width
+        const noteZones = [
+            { note: 'C', min: 0.00, max: 0.14 },
+            { note: 'D', min: 0.14, max: 0.28 },
+            { note: 'E', min: 0.28, max: 0.43 },
+            { note: 'F', min: 0.43, max: 0.57 },
+            { note: 'G', min: 0.57, max: 0.71 },
+            { note: 'A', min: 0.71, max: 0.86 },
+            { note: 'B', min: 0.86, max: 1.00 }
+        ];
+
+        // ============================
+        // AUDIO SETUP - Web Audio API with Vintage Piano Sound
+        // ============================
+
+        function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Create reverb for vintage sound
+            reverbNode = audioContext.createConvolver();
+
+            // Create simple reverb impulse response
+            const reverbTime = 2; // seconds
+            const sampleRate = audioContext.sampleRate;
+            const length = sampleRate * reverbTime;
+            const impulse = audioContext.createBuffer(2, length, sampleRate);
+            const impulseL = impulse.getChannelData(0);
+            const impulseR = impulse.getChannelData(1);
+
+            for (let i = 0; i < length; i++) {
+                const decay = Math.exp(-3 * i / length);
+                impulseL[i] = (Math.random() * 2 - 1) * decay;
+                impulseR[i] = (Math.random() * 2 - 1) * decay;
+            }
+
+            reverbNode.buffer = impulse;
+
+            // Master gain
+            masterGain = audioContext.createGain();
+            masterGain.gain.value = 0.3;
+
+            // Connect reverb with dry/wet mix
+            const dryGain = audioContext.createGain();
+            const wetGain = audioContext.createGain();
+            dryGain.gain.value = 0.7;
+            wetGain.gain.value = 0.3;
+
+            masterGain.connect(dryGain);
+            masterGain.connect(reverbNode);
+            reverbNode.connect(wetGain);
+
+            dryGain.connect(audioContext.destination);
+            wetGain.connect(audioContext.destination);
+        }
+
+        /**
+         * Play a vintage piano note using Web Audio API
+         * Creates a rich, layered piano-like sound with harmonics
+         */
+        function playNote(frequency, duration = 1.5) {
+            if (!audioContext) initAudio();
+
+            const now = audioContext.currentTime;
+
+            // Create multiple oscillators for rich piano timbre
+            const oscillators = [];
+            const gains = [];
+
+            // Fundamental frequency
+            const fundamental = createOscillatorWithEnvelope(frequency, 1.0, now, duration);
+            oscillators.push(fundamental.osc);
+            gains.push(fundamental.gain);
+
+            // Harmonics (overtones) for piano-like sound
+            const harmonics = [
+                { mult: 2, amp: 0.5 },   // Octave
+                { mult: 3, amp: 0.25 },  // Fifth
+                { mult: 4, amp: 0.15 },  // Two octaves
+                { mult: 5, amp: 0.1 }    // Major third
+            ];
+
+            harmonics.forEach(h => {
+                const harmonic = createOscillatorWithEnvelope(
+                    frequency * h.mult,
+                    h.amp,
+                    now,
+                    duration * 0.8
+                );
+                oscillators.push(harmonic.osc);
+                gains.push(harmonic.gain);
+            });
+
+            // Start all oscillators
+            oscillators.forEach(osc => osc.start(now));
+
+            // Stop all oscillators after duration
+            setTimeout(() => {
+                oscillators.forEach(osc => osc.stop());
+            }, duration * 1000);
+        }
+
+        /**
+         * Create an oscillator with ADSR envelope for piano-like sound
+         */
+        function createOscillatorWithEnvelope(freq, amplitude, startTime, duration) {
+            const osc = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            // Use triangle wave for softer piano-like tone
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, startTime);
+
+            // ADSR Envelope (Attack, Decay, Sustain, Release)
+            const attack = 0.02;
+            const decay = 0.1;
+            const sustain = 0.4;
+            const release = 0.5;
+
+            gainNode.gain.setValueAtTime(0, startTime);
+            gainNode.gain.linearRampToValueAtTime(amplitude, startTime + attack);
+            gainNode.gain.linearRampToValueAtTime(amplitude * sustain, startTime + attack + decay);
+            gainNode.gain.setValueAtTime(amplitude * sustain, startTime + duration - release);
+            gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+
+            osc.connect(gainNode);
+            gainNode.connect(masterGain);
+
+            return { osc, gain: gainNode };
+        }
+
+        /**
+         * Trigger a note by note name (C, D, E, F, G, A, B)
+         */
+        function playNoteByName(noteName) {
+            const keyElement = document.querySelector(`.key[data-note="${noteName}"]`);
+            if (!keyElement) return;
+
+            const frequency = parseFloat(keyElement.dataset.freq);
+            playNote(frequency);
+
+            // Visual feedback
+            activateKey(keyElement);
+        }
+
+        /**
+         * Visual feedback - animate key press
+         */
+        function activateKey(keyElement) {
+            keyElement.classList.add('active');
+            keyElement.classList.add('hand-triggered');
+
+            setTimeout(() => {
+                keyElement.classList.remove('active');
+            }, 200);
+
+            setTimeout(() => {
+                keyElement.classList.remove('hand-triggered');
+            }, 300);
+        }
+
+        // ============================
+        // HAND TRACKING WITH MEDIAPIPE
+        // ============================
+
+        /**
+         * Initialize MediaPipe Hands for webcam tracking
+         */
+        function initHandTracking() {
+            const videoElement = document.getElementById('webcam');
+            const canvasElement = document.getElementById('canvas-overlay');
+            const canvasCtx = canvasElement.getContext('2d');
+
+            // Set canvas size to match video
+            canvasElement.width = 320;
+            canvasElement.height = 240;
+
+            // MediaPipe Hands configuration
+            hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.7
+            });
+
+            // Hand tracking results callback
+            hands.onResults(onHandResults);
+
+            // Camera setup
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start();
+        }
+
+        /**
+         * Process hand tracking results
+         * Detects index finger position and tap gestures
+         */
+        function onHandResults(results) {
+            const canvasElement = document.getElementById('canvas-overlay');
+            const canvasCtx = canvasElement.getContext('2d');
+            const fingerIndicator = document.getElementById('finger-indicator');
+
+            // Clear canvas
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+
+                // Index finger tip is landmark #8
+                const indexFingerTip = landmarks[8];
+                const indexFingerMCP = landmarks[5]; // Base of index finger for tap detection
+
+                // Draw hand skeleton on canvas for debugging
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+                    color: '#FFD700',
+                    lineWidth: 2
+                });
+                drawLandmarks(canvasCtx, landmarks, {
+                    color: '#FF6347',
+                    lineWidth: 1,
+                    radius: 3
+                });
+
+                // Map finger position to screen coordinates
+                // MediaPipe returns normalized coordinates (0-1)
+                // X is mirrored for natural interaction
+                const screenX = (1 - indexFingerTip.x) * window.innerWidth;
+                const screenY = indexFingerTip.y * window.innerHeight;
+
+                // Show finger indicator
+                fingerIndicator.style.display = 'block';
+                fingerIndicator.style.left = screenX + 'px';
+                fingerIndicator.style.top = screenY + 'px';
+
+                // Detect which note zone the finger is over
+                const normalizedX = 1 - indexFingerTip.x; // Mirror for natural feel
+                const currentNote = getNoteFromPosition(normalizedX);
+
+                // Tap detection - detect downward movement of index finger
+                detectTap(indexFingerTip.y, currentNote);
+
+            } else {
+                // No hand detected
+                fingerIndicator.style.display = 'none';
+                lastFingerY = null;
+            }
+        }
+
+        /**
+         * Map horizontal position (0-1) to note name
+         */
+        function getNoteFromPosition(normalizedX) {
+            for (let zone of noteZones) {
+                if (normalizedX >= zone.min && normalizedX < zone.max) {
+                    return zone.note;
+                }
+            }
+            return 'B'; // Default to last note
+        }
+
+        /**
+         * Detect tap gesture by tracking vertical finger movement
+         * A tap is detected when finger moves down quickly
+         */
+        function detectTap(currentY, noteName) {
+            const now = Date.now();
+
+            if (lastFingerY !== null) {
+                const deltaY = currentY - lastFingerY;
+
+                // Detect downward movement (increase in Y)
+                if (deltaY > tapThreshold && (now - lastTapTime) > tapCooldown) {
+                    // TAP DETECTED!
+                    lastTapTime = now;
+                    handleNoteTap(noteName);
+                }
+            }
+
+            lastFingerY = currentY;
+        }
+
+        /**
+         * Handle note tap - play sound and trigger game logic
+         */
+        function handleNoteTap(noteName) {
+            console.log('Tap detected:', noteName);
+
+            // Play the note
+            playNoteByName(noteName);
+
+            // Handle challenge mode
+            if (gameMode === 'challenge' && challengeActive) {
+                checkChallengeNote(noteName);
+            }
+        }
+
+        // ============================
+        // GAME MODE MANAGEMENT
+        // ============================
+
+        /**
+         * Toggle between Free Play and Challenge modes
+         */
+        function toggleMode() {
+            if (gameMode === 'free') {
+                gameMode = 'challenge';
+                startChallenge();
+            } else {
+                gameMode = 'free';
+                endChallenge();
+            }
+            updateModeDisplay();
+        }
+
+        function updateModeDisplay() {
+            const modeIndicator = document.getElementById('mode-indicator');
+            if (gameMode === 'free') {
+                modeIndicator.textContent = '🎹 Free Play Mode';
+            } else {
+                modeIndicator.textContent = '🎯 Melody Challenge Mode';
+            }
+        }
+
+        // ============================
+        // CHALLENGE MODE LOGIC
+        // ============================
+
+        /**
+         * Generate a random melody sequence
+         */
+        function generateChallenge() {
+            const notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+            const length = 3 + Math.floor(Math.random() * 3); // 3-5 notes
+            const sequence = [];
+
+            for (let i = 0; i < length; i++) {
+                const randomNote = notes[Math.floor(Math.random() * notes.length)];
+                sequence.push(randomNote);
+            }
+
+            return sequence;
+        }
+
+        /**
+         * Start a new challenge
+         */
+        function startChallenge() {
+            currentChallenge = generateChallenge();
+            userSequence = [];
+            challengeActive = true;
+
+            // Display challenge
+            const challengeDisplay = document.getElementById('challenge-display');
+            const challengeSequence = document.getElementById('challenge-sequence');
+            const challengeProgress = document.getElementById('challenge-progress');
+
+            challengeDisplay.style.display = 'block';
+            challengeSequence.textContent = currentChallenge.join(' - ');
+            challengeProgress.textContent = 'Your turn: ';
+
+            // Play the sequence for the user
+            playChallengeSequence();
+        }
+
+        /**
+         * Play the challenge sequence as a demo
+         */
+        function playChallengeSequence() {
+            currentChallenge.forEach((note, index) => {
+                setTimeout(() => {
+                    playNoteByName(note);
+                }, index * 600);
+            });
+        }
+
+        /**
+         * Check if user played the correct note in challenge
+         */
+        function checkChallengeNote(noteName) {
+            const expectedNote = currentChallenge[userSequence.length];
+
+            userSequence.push(noteName);
+
+            // Update progress
+            const challengeProgress = document.getElementById('challenge-progress');
+            challengeProgress.textContent = 'Your turn: ' + userSequence.join(' - ');
+
+            // Check if note is correct
+            if (noteName !== expectedNote) {
+                // Wrong note!
+                showFeedback('incorrect', '❌ Try Again!');
+                setTimeout(() => {
+                    userSequence = [];
+                    challengeProgress.textContent = 'Your turn: ';
+                }, 1500);
+                return;
+            }
+
+            // Check if sequence is complete
+            if (userSequence.length === currentChallenge.length) {
+                // Success!
+                showFeedback('correct', '✨ Perfect! ✨');
+                setTimeout(() => {
+                    startChallenge(); // Generate new challenge
+                }, 2000);
+            }
+        }
+
+        /**
+         * End challenge mode
+         */
+        function endChallenge() {
+            challengeActive = false;
+            document.getElementById('challenge-display').style.display = 'none';
+        }
+
+        /**
+         * Show feedback message
+         */
+        function showFeedback(type, message) {
+            const feedback = document.getElementById('feedback');
+            feedback.textContent = message;
+            feedback.className = 'show ' + type;
+
+            setTimeout(() => {
+                feedback.classList.remove('show');
+            }, 1500);
+        }
+
+        // ============================
+        // INSTRUCTIONS
+        // ============================
+
+        function showInstructions() {
+            document.getElementById('instructions').classList.add('show');
+        }
+
+        function hideInstructions() {
+            document.getElementById('instructions').classList.remove('show');
+        }
+
+        // ============================
+        // INITIALIZATION
+        // ============================
+
+        window.addEventListener('load', () => {
+            console.log('🎹 Initializing Air Piano...');
+
+            // Initialize audio
+            initAudio();
+
+            // Initialize hand tracking
+            initHandTracking();
+
+            // Show instructions on first load
+            setTimeout(() => {
+                showInstructions();
+            }, 1000);
+
+            console.log('✅ Air Piano ready!');
+        });
+
+        // Allow clicking keys for testing
+        document.querySelectorAll('.key').forEach(key => {
+            key.addEventListener('click', () => {
+                const noteName = key.dataset.note;
+                playNoteByName(noteName);
+            });
+        });
+    </script>
+</body>
+</html>
