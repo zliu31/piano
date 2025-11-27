@@ -385,7 +385,7 @@
 <body>
     <!-- Piano Container -->
     <div id="piano-container">
-        <!-- Keyboard with 7 white keys (C, D, E, F, G, A, B) -->
+        <!-- Keyboard with 12 playable keys (7 white: C, D, E, F, G, A, B + 5 black: C#, D#, F#, G#, A#) -->
         <div id="keyboard">
             <!-- White keys -->
             <div class="key white" data-note="C" data-freq="261.63">
@@ -410,7 +410,7 @@
                 <div class="key-label">B</div>
             </div>
 
-            <!-- Black keys (optional, for visual realism) -->
+            <!-- Black keys -->
             <div class="key black" data-note="C#" data-freq="277.18">
                 <div class="key-label">C#</div>
             </div>
@@ -507,15 +507,20 @@
         let userSequence = [];
         let challengeActive = false;
 
-        // Note mapping - 7 zones across screen width
+        // Note mapping - 12 zones across screen width (full chromatic scale)
         const noteZones = [
-            { note: 'C', min: 0.00, max: 0.14 },
-            { note: 'D', min: 0.14, max: 0.28 },
-            { note: 'E', min: 0.28, max: 0.43 },
-            { note: 'F', min: 0.43, max: 0.57 },
-            { note: 'G', min: 0.57, max: 0.71 },
-            { note: 'A', min: 0.71, max: 0.86 },
-            { note: 'B', min: 0.86, max: 1.00 }
+            { note: 'C', min: 0.000, max: 0.083 },
+            { note: 'C#', min: 0.083, max: 0.167 },
+            { note: 'D', min: 0.167, max: 0.250 },
+            { note: 'D#', min: 0.250, max: 0.333 },
+            { note: 'E', min: 0.333, max: 0.417 },
+            { note: 'F', min: 0.417, max: 0.500 },
+            { note: 'F#', min: 0.500, max: 0.583 },
+            { note: 'G', min: 0.583, max: 0.667 },
+            { note: 'G#', min: 0.667, max: 0.750 },
+            { note: 'A', min: 0.750, max: 0.833 },
+            { note: 'A#', min: 0.833, max: 0.917 },
+            { note: 'B', min: 0.917, max: 1.000 }
         ];
 
         // ============================
@@ -850,7 +855,7 @@
          * Generate a random melody sequence
          */
         function generateChallenge() {
-            const notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+            const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
             const length = 3 + Math.floor(Math.random() * 3); // 3-5 notes
             const sequence = [];
 

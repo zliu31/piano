@@ -19,7 +19,7 @@ A browser-based interactive piano game that uses webcam hand tracking to play a 
 ### 🎥 **Webcam Hand Tracking**
 - Powered by **MediaPipe Hands** for accurate real-time tracking
 - Track your index finger position across the screen
-- Automatic mapping to 7 note zones (C, D, E, F, G, A, B)
+- Automatic mapping to 12 note zones (full chromatic scale: C, C#, D, D#, E, F, F#, G, G#, A, A#, B)
 - Intelligent downward tap detection
 - Visual finger position indicator
 
@@ -100,7 +100,7 @@ Want to host your own version? See **[DEPLOYMENT.md](DEPLOYMENT.md)** for comple
 2. **Select Notes:**
    - Move your hand horizontally (left to right)
    - The golden indicator shows your finger position on screen
-   - Different horizontal positions = different notes (C through B)
+   - Different horizontal positions = different notes (all 12 chromatic notes from C to B)
 
 3. **Play Notes:**
    - Make a quick **downward tapping motion** with your index finger
@@ -195,9 +195,10 @@ The entire application is contained in a **single HTML file** (`air-piano.html`)
 ### Note Zone Mapping
 
 ```
-Screen Width: 0% ─────────────────────────── 100%
-             │  C  │  D  │  E  │  F  │  G  │  A  │  B  │
-Zones:       │ 14% │ 14% │ 15% │ 14% │ 14% │ 15% │ 14% │
+Screen Width: 0% ───────────────────────────────────────────────── 100%
+             │ C │C#│ D │D#│ E │ F │F#│ G │G#│ A │A#│ B │
+Zones:       │8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│8.3%│
+             (12 equal zones for full chromatic scale)
 ```
 
 ### Piano Sound Synthesis
@@ -279,8 +280,8 @@ wetGain.gain.value = 0.3; // Wet signal (0-1)
 const length = 3 + Math.floor(Math.random() * 3); // Change range (3-5 notes)
 ```
 
-### Add More Notes
-Simply add more white keys in the HTML and adjust the `noteZones` array to divide the screen into more sections.
+### Extend the Range
+All 12 chromatic notes within one octave are already available. To add more octaves, duplicate the keys in HTML with higher/lower frequencies and expand the `noteZones` array accordingly.
 
 ## 📝 Notes
 
