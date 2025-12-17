@@ -489,6 +489,11 @@
         let lastTapTime = 0;
         let tapCooldown = 300; // ms between taps
 
+        // Sustained notes tracking
+        let activeNotes = {}; // Map of note names to their oscillators
+        let currentlyPressedNote = null; // Track which note is currently being held
+        let isFingerDown = false; // Track if finger is in down position
+
         // Game state
         let gameMode = 'free'; // 'free' or 'challenge'
         let currentChallenge = [];
@@ -556,11 +561,16 @@
         }
 
         /**
-         * Play a vintage piano note using Web Audio API
-         * Creates a rich, layered piano-like sound with harmonics
+         * Play a sustained piano note that continues until stopped
+         * Returns note data for later stopping
          */
-        function playNote(frequency, duration = 1.5) {
+        function startNote(frequency, noteName) {
             if (!audioContext) initAudio();
+
+            // Stop existing note for this key
+            if (activeNotes[noteName]) {
+                stopNote(noteName);
+            }
 
             const now = audioContext.currentTime;
 
@@ -569,7 +579,7 @@
             const gains = [];
 
             // Fundamental frequency
-            const fundamental = createOscillatorWithEnvelope(frequency, 1.0, now, duration);
+            const fundamental = createSustainedOscillator(frequency, 1.0, now);
             oscillators.push(fundamental.osc);
             gains.push(fundamental.gain);
 
@@ -582,11 +592,10 @@
             ];
 
             harmonics.forEach(h => {
-                const harmonic = createOscillatorWithEnvelope(
+                const harmonic = createSustainedOscillator(
                     frequency * h.mult,
                     h.amp,
-                    now,
-                    duration * 0.8
+                    now
                 );
                 oscillators.push(harmonic.osc);
                 gains.push(harmonic.gain);
@@ -595,16 +604,50 @@
             // Start all oscillators
             oscillators.forEach(osc => osc.start(now));
 
-            // Stop all oscillators after duration
-            setTimeout(() => {
-                oscillators.forEach(osc => osc.stop());
-            }, duration * 1000);
+            // Store active note data
+            activeNotes[noteName] = {
+                oscillators: oscillators,
+                gains: gains,
+                startTime: now
+            };
+
+            return activeNotes[noteName];
         }
 
         /**
-         * Create an oscillator with ADSR envelope for piano-like sound
+         * Stop a sustained note with release envelope
          */
-        function createOscillatorWithEnvelope(freq, amplitude, startTime, duration) {
+        function stopNote(noteName) {
+            const noteData = activeNotes[noteName];
+            if (!noteData) return;
+
+            const now = audioContext.currentTime;
+            const release = 0.3; // Release time in seconds
+
+            // Apply release envelope to all gain nodes
+            noteData.gains.forEach(gainNode => {
+                gainNode.gain.cancelScheduledValues(now);
+                gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+                gainNode.gain.linearRampToValueAtTime(0, now + release);
+            });
+
+            // Stop and clean up oscillators after release
+            setTimeout(() => {
+                noteData.oscillators.forEach(osc => {
+                    try {
+                        osc.stop();
+                    } catch (e) {
+                        // Oscillator might already be stopped
+                    }
+                });
+                delete activeNotes[noteName];
+            }, release * 1000 + 100);
+        }
+
+        /**
+         * Create a sustained oscillator with attack and decay, but held sustain
+         */
+        function createSustainedOscillator(freq, amplitude, startTime) {
             const osc = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
 
@@ -612,17 +655,15 @@
             osc.type = 'triangle';
             osc.frequency.setValueAtTime(freq, startTime);
 
-            // ADSR Envelope (Attack, Decay, Sustain, Release)
+            // Attack and Decay to sustain level
             const attack = 0.02;
             const decay = 0.1;
-            const sustain = 0.4;
-            const release = 0.5;
+            const sustain = 0.7; // Sustain level
 
             gainNode.gain.setValueAtTime(0, startTime);
             gainNode.gain.linearRampToValueAtTime(amplitude, startTime + attack);
             gainNode.gain.linearRampToValueAtTime(amplitude * sustain, startTime + attack + decay);
-            gainNode.gain.setValueAtTime(amplitude * sustain, startTime + duration - release);
-            gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+            // Note: No release here - will be applied when stopNote is called
 
             osc.connect(gainNode);
             gainNode.connect(masterGain);
@@ -631,17 +672,34 @@
         }
 
         /**
-         * Trigger a note by note name (C, D, E, F, G, A, B)
+         * Start playing a note by note name (sustained)
          */
-        function playNoteByName(noteName) {
+        function startNoteByName(noteName) {
             const keyElement = document.querySelector(`.key[data-note="${noteName}"]`);
             if (!keyElement) return;
 
             const frequency = parseFloat(keyElement.dataset.freq);
-            playNote(frequency);
+            startNote(frequency, noteName);
 
             // Visual feedback
-            activateKey(keyElement);
+            keyElement.classList.add('active');
+            keyElement.classList.add('hand-triggered');
+        }
+
+        /**
+         * Stop playing a note by note name
+         */
+        function stopNoteByName(noteName) {
+            const keyElement = document.querySelector(`.key[data-note="${noteName}"]`);
+            if (!keyElement) return;
+
+            stopNote(noteName);
+
+            // Remove visual feedback
+            keyElement.classList.remove('active');
+            setTimeout(() => {
+                keyElement.classList.remove('hand-triggered');
+            }, 300);
         }
 
         /**
@@ -754,9 +812,11 @@
                 detectTap(indexFingerTip.y, currentNote);
 
             } else {
-                // No hand detected
+                // No hand detected - release any active notes
                 fingerIndicator.style.display = 'none';
                 lastFingerY = null;
+                isFingerDown = false;
+                handleNoteRelease();
             }
         }
 
@@ -773,20 +833,27 @@
         }
 
         /**
-         * Detect tap gesture by tracking vertical finger movement
-         * A tap is detected when finger moves down quickly
+         * Detect finger press and release for sustained notes
+         * Tracks vertical finger movement to determine press/release state
          */
         function detectTap(currentY, noteName) {
-            const now = Date.now();
-
             if (lastFingerY !== null) {
                 const deltaY = currentY - lastFingerY;
 
-                // Detect downward movement (increase in Y)
-                if (deltaY > tapThreshold && (now - lastTapTime) > tapCooldown) {
-                    // TAP DETECTED!
-                    lastTapTime = now;
-                    handleNoteTap(noteName);
+                // Detect downward movement (finger pressing down)
+                if (deltaY > tapThreshold && !isFingerDown) {
+                    isFingerDown = true;
+                    handleNotePress(noteName);
+                }
+                // Detect upward movement (finger releasing)
+                else if (deltaY < -tapThreshold && isFingerDown) {
+                    isFingerDown = false;
+                    handleNoteRelease();
+                }
+                // Note changed while finger is down
+                else if (isFingerDown && noteName !== currentlyPressedNote) {
+                    handleNoteRelease();
+                    handleNotePress(noteName);
                 }
             }
 
@@ -794,17 +861,29 @@
         }
 
         /**
-         * Handle note tap - play sound and trigger game logic
+         * Handle finger pressing down on a note
          */
-        function handleNoteTap(noteName) {
-            console.log('Tap detected:', noteName);
+        function handleNotePress(noteName) {
+            console.log('Note press:', noteName);
 
-            // Play the note
-            playNoteByName(noteName);
+            // Start the sustained note
+            startNoteByName(noteName);
+            currentlyPressedNote = noteName;
 
             // Handle challenge mode
             if (gameMode === 'challenge' && challengeActive) {
                 checkChallengeNote(noteName);
+            }
+        }
+
+        /**
+         * Handle finger releasing from a note
+         */
+        function handleNoteRelease() {
+            if (currentlyPressedNote) {
+                console.log('Note release:', currentlyPressedNote);
+                stopNoteByName(currentlyPressedNote);
+                currentlyPressedNote = null;
             }
         }
 
@@ -882,7 +961,12 @@
         function playChallengeSequence() {
             currentChallenge.forEach((note, index) => {
                 setTimeout(() => {
-                    playNoteByName(note);
+                    // Start note
+                    startNoteByName(note);
+                    // Stop note after 400ms for demo
+                    setTimeout(() => {
+                        stopNoteByName(note);
+                    }, 400);
                 }, index * 600);
             });
         }
@@ -974,11 +1058,21 @@
             console.log('✅ Air Piano ready!');
         });
 
-        // Allow clicking keys for testing
+        // Allow clicking/pressing keys for testing - sustained playback
         document.querySelectorAll('.key').forEach(key => {
-            key.addEventListener('click', () => {
+            key.addEventListener('mousedown', () => {
                 const noteName = key.dataset.note;
-                playNoteByName(noteName);
+                startNoteByName(noteName);
+            });
+
+            key.addEventListener('mouseup', () => {
+                const noteName = key.dataset.note;
+                stopNoteByName(noteName);
+            });
+
+            key.addEventListener('mouseleave', () => {
+                const noteName = key.dataset.note;
+                stopNoteByName(noteName);
             });
         });
     </script>
